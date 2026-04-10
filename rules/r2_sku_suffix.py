@@ -1,10 +1,25 @@
 """
 R2 — SKU Suffix Validation
-Suffix map comes from context["rules"]["R2"].config_data (DataFrame).
-Loaded from sku_suffix_mapping.xlsx. No hardcoded values.
+Suffix map comes from context["rules"]["R2"].config_data.
+Config file may be multi-sheet; the sheet containing a 'Suffix code' column is used.
 """
+from __future__ import annotations
+
 import pandas as pd
 from rules.base_rule import BaseRule
+from typing import Optional
+
+
+def _extract_suffix_df(config_data) -> Optional[pd.DataFrame]:
+    """Return the DataFrame containing the suffix_code column."""
+    if isinstance(config_data, pd.DataFrame):
+        return config_data
+    if isinstance(config_data, dict):
+        for sheet_name, df in config_data.items():
+            cols_norm = df.columns.str.strip().str.lower().str.replace(" ", "_")
+            if "suffix_code" in cols_norm.tolist():
+                return df
+    return None
 
 
 class R2SKUSuffix(BaseRule):
@@ -14,20 +29,19 @@ class R2SKUSuffix(BaseRule):
     def validate(self, row: pd.Series, context: dict) -> dict:
         rule_def = context["rules"].get("R2")
         if not rule_def or rule_def.config_data is None:
-            return self._fail("R2 config (sku_suffix_mapping.xlsx) not loaded")
+            return self._fail("R2 config not loaded")
+
+        df = _extract_suffix_df(rule_def.config_data)
+        if df is None:
+            return self._fail("R2 config has no sheet with a 'Suffix code' column")
 
         sku = str(row.get("Style #", "")).strip()
         if len(sku) < 3:
-            return self._fail(f"Style # '{sku}' too short to extract suffix (needs ≥ 3 chars)")
+            return self._fail(f"Style # '{sku}' too short to extract suffix (needs >= 3 chars)")
 
         suffix = sku[-3:].upper()
-        df: pd.DataFrame = rule_def.config_data.copy()
+        df = df.copy()
         df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
-
-        if "suffix_code" not in df.columns:
-            return self._fail(
-                "R2 config missing required column 'suffix_code' (check sku_suffix_mapping.xlsx headers)"
-            )
 
         match = df[df["suffix_code"].astype(str).str.strip().str.upper() == suffix]
         if match.empty:

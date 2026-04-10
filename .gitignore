@@ -44,5 +44,7 @@ htmlcov/
 output/*
 !output/.gitkeep
 
+# Data
+config/disney/
 # Optional: uncomment to avoid committing licensor Excel mappings
 # config/**/*.xlsx

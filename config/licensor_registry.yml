@@ -31,13 +31,13 @@ licensors:
         name: "SKU Suffix Validation"
         enabled: true
         is_gate: false
-        config_file: "sku_suffix_mapping.xlsx"
+        config_file: "DISNEY PROPERTIES 7.xlsx"
 
       - id: R3
         name: "Property Validation"
         enabled: true
         is_gate: false
-        config_file: "property_hierarchy.xlsx"
+        config_file: "BioWorld Cross Franchise Property Hierarchy_all franchises 10.xlsx"
         # R3 checks two things from this file (both text-based):
         # 1. Does the declared Property exist in the approved hierarchy?
         # 2. Is the Property flagged DO NOT USE?
