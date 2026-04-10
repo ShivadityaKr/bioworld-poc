@@ -1,0 +1,48 @@
+licensors:
+
+  disney:
+    display_name: "The Walt Disney Company"
+    config_path: "config/disney"
+    active: true
+    rules:
+
+      - id: R1
+        name: "Mandatory Field Check"
+        enabled: true
+        is_gate: true         # gate: failure stops remaining rules for that row
+        config_file: null     # R1 reads required_fields directly from this registry
+        required_fields:
+          - field: "Style #"
+            display: "Style Number"
+          - field: "Licensor"
+            display: "Licensor"
+          - field: "Property"
+            display: "Property"
+          - field: "Art Ref #"
+            display: "Art Reference Number"
+          - field: "Item Type"
+            display: "Item Type"
+          - field: "Customer"
+            display: "Customer"
+          - field: "Division"
+            display: "Division"
+
+      - id: R2
+        name: "SKU Suffix Validation"
+        enabled: true
+        is_gate: false
+        config_file: "sku_suffix_mapping.xlsx"
+
+      - id: R3
+        name: "Property Validation"
+        enabled: true
+        is_gate: false
+        config_file: "property_hierarchy.xlsx"
+        # R3 checks two things from this file (both text-based):
+        # 1. Does the declared Property exist in the approved hierarchy?
+        # 2. Is the Property flagged DO NOT USE?
+        # Art Ref cross-check (requires DMC portal) is out of scope for this phase.
+
+  # To add a new licensor: add a block here and create its config folder.
+  # To disable a rule: set enabled: false. No Python changes needed.
+  # To add a required field to R1: add an entry under required_fields.
