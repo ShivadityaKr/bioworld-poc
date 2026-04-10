@@ -75,6 +75,36 @@ def run(licensor_display: str, file_obj):
         <div style="font-size:13px; color:#666; margin-top:4px;">Pass Rate</div>
       </div>
     </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;">
+      <span style="font-size:14px;font-weight:600;color:#444;margin-right:4px;">Filter:</span>
+      <button onclick="document.querySelectorAll('.style-card').forEach(c=>c.style.display='');
+              document.querySelectorAll('.filter-btn').forEach(b=>{{b.style.background='#fff';b.style.color='#555';}});
+              this.style.background='#0066cc';this.style.color='#fff';"
+              class="filter-btn"
+              style="padding:6px 18px;border-radius:20px;border:1px solid #0066cc;
+              background:#0066cc;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">
+        All ({total})
+      </button>
+      <button onclick="document.querySelectorAll('.style-card').forEach(c=>c.style.display=
+              c.dataset.status==='PASS'?'':'none');
+              document.querySelectorAll('.filter-btn').forEach(b=>{{b.style.background='#fff';b.style.color='#555';}});
+              this.style.background='#28a745';this.style.color='#fff';"
+              class="filter-btn"
+              style="padding:6px 18px;border-radius:20px;border:1px solid #28a745;
+              background:#fff;color:#555;cursor:pointer;font-size:13px;font-weight:600;">
+        Passed ({pass_count})
+      </button>
+      <button onclick="document.querySelectorAll('.style-card').forEach(c=>c.style.display=
+              c.dataset.status==='FAIL'?'':'none');
+              document.querySelectorAll('.filter-btn').forEach(b=>{{b.style.background='#fff';b.style.color='#555';}});
+              this.style.background='#dc3545';this.style.color='#fff';"
+              class="filter-btn"
+              style="padding:6px 18px;border-radius:20px;border:1px solid #dc3545;
+              background:#fff;color:#555;cursor:pointer;font-size:13px;font-weight:600;">
+        Failed ({fail_count})
+      </button>
+    </div>
     """)
 
     for vr in v_results:
@@ -105,7 +135,8 @@ def run(licensor_display: str, file_obj):
         score_html = " &middot; ".join(score_parts)
 
         card_html = f"""
-        <div style="background:{card_bg};border-left:5px solid {border_color};
+        <div class="style-card" data-status="{overall}"
+             style="background:{card_bg};border-left:5px solid {border_color};
              border-radius:10px;padding:18px 22px;margin-bottom:12px;
              box-shadow:0 1px 3px rgba(0,0,0,0.06);">
           <div style="display:flex;justify-content:space-between;align-items:center;
@@ -216,15 +247,16 @@ def build_config_html():
         cfg = config_loader.get_config(lid)
         parts.append(f"""
         <div style="margin-bottom:24px;">
-          <h3 style="margin:0 0 12px 0; color:#333;">{display}</h3>
-          <table style="width:100%; border-collapse:collapse; font-size:14px;">
+          <h3 style="margin:0 0 12px 0; color:#0066cc; font-size:20px;">{display}</h3>
+          <table style="width:100%; border-collapse:collapse; font-size:14px;
+                 border:1px solid #dee2e6; border-radius:8px; overflow:hidden;">
             <thead>
-              <tr style="background:#2c3e50; text-align:left;">
-                <th style="padding:10px 14px; border-bottom:2px solid #dee2e6; color:#fff;">ID</th>
-                <th style="padding:10px 14px; border-bottom:2px solid #dee2e6; color:#fff;">Rule Name</th>
-                <th style="padding:10px 14px; border-bottom:2px solid #dee2e6; color:#fff;">Enabled</th>
-                <th style="padding:10px 14px; border-bottom:2px solid #dee2e6; color:#fff;">Gate</th>
-                <th style="padding:10px 14px; border-bottom:2px solid #dee2e6; color:#fff;">Config File</th>
+              <tr style="background:#e9ecef; text-align:left;">
+                <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">ID</th>
+                <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Rule Name</th>
+                <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Enabled</th>
+                <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Gate</th>
+                <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Config File</th>
               </tr>
             </thead>
             <tbody>
@@ -233,16 +265,17 @@ def build_config_html():
             en_badge = ('<span style="color:#28a745; font-weight:600;">Enabled</span>'
                         if r.enabled else
                         '<span style="color:#dc3545; font-weight:600;">Disabled</span>')
-            gate_badge = ('<span style="background:#ffeeba; padding:2px 8px; border-radius:4px;'
-                          ' font-size:12px;">Gate</span>' if r.is_gate else "\u2014")
+            gate_badge = ('<span style="background:#e67e22; color:#fff; padding:3px 10px;'
+                          ' border-radius:4px; font-size:12px; font-weight:600;">Gate</span>'
+                          if r.is_gate else "\u2014")
             cf = r.config_file or "\u2014"
             parts.append(f"""
-              <tr style="border-bottom:1px solid #e9ecef;">
-                <td style="padding:10px 14px; font-weight:600;">{r.id}</td>
-                <td style="padding:10px 14px;">{r.name}</td>
+              <tr style="border-bottom:1px solid #e9ecef; background:#fff;">
+                <td style="padding:10px 14px; font-weight:600; color:#333;">{r.id}</td>
+                <td style="padding:10px 14px; color:#333;">{r.name}</td>
                 <td style="padding:10px 14px;">{en_badge}</td>
                 <td style="padding:10px 14px;">{gate_badge}</td>
-                <td style="padding:10px 14px; font-size:12px; color:#666;">{cf}</td>
+                <td style="padding:10px 14px; font-size:12px; color:#555;">{cf}</td>
               </tr>
             """)
         parts.append("</tbody></table></div>")
