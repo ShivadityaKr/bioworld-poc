@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from collections import OrderedDict
 from datetime import datetime
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -29,6 +30,26 @@ _licensor_names = [d for _, d in _licensor_options]
 
 
 # ---------------------------------------------------------------------------
+# Helper — group rule results by their parent rule group
+# ---------------------------------------------------------------------------
+def _group_results(row_results: list[dict], rules_map: dict) -> OrderedDict:
+    """
+    Returns OrderedDict of group_name -> list of sub-rule result dicts.
+    Preserves insertion order so groups appear in evaluation order.
+    """
+    groups: OrderedDict = OrderedDict()
+    for r in row_results:
+        rule_def = rules_map.get(r["rule_id"])
+        gname = rule_def.group_name if rule_def else "Other"
+        gid = rule_def.group if rule_def else ""
+        key = (gid, gname)
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(r)
+    return groups
+
+
+# ---------------------------------------------------------------------------
 # Validation logic
 # ---------------------------------------------------------------------------
 def run(licensor_display: str, file_obj):
@@ -44,38 +65,131 @@ def run(licensor_display: str, file_obj):
     v_results = run_validation(df, context)
     _pass_df, _error_df, summary = build_output(df, v_results)
 
+    rules_map = context["rules"]
+
     total = summary["total"]
     pass_count = summary["pass_count"]
     fail_count = summary["fail_count"]
     pass_pct = summary["pass_pct"]
 
-    # -- Build style-centric HTML (ALL styles) -----------------------------
+    # -- Build rule stats ---------------------------------------------------
+    from collections import Counter as _Counter
+
+    group_stats: OrderedDict = OrderedDict()
+    rule_stats: OrderedDict = OrderedDict()
+    for vr in v_results:
+        for r in vr["results"]:
+            rid = r["rule_id"]
+            st = r["status"]
+            if rid not in rule_stats:
+                rule_stats[rid] = _Counter()
+            rule_stats[rid][st] += 1
+            rd = rules_map.get(rid)
+            gid = rd.group if rd else rid.split(".")[0]
+            if gid not in group_stats:
+                group_stats[gid] = _Counter()
+            group_stats[gid][st] += 1
+
+    # -- Build style-centric HTML ------------------------------------------
     html_parts = []
 
     html_parts.append(f"""
-    <div style="display:flex; gap:16px; margin-bottom:24px; flex-wrap:wrap;">
-      <div style="flex:1; min-width:140px; background:#f8f9fa; border-radius:12px;
-           padding:20px; text-align:center; border:1px solid #e9ecef;">
-        <div style="font-size:28px; font-weight:700; color:#333;">{total}</div>
-        <div style="font-size:13px; color:#666; margin-top:4px;">Total Styles</div>
+    <div style="display:flex; gap:16px; margin-bottom:18px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:120px; background:#f8f9fa; border-radius:12px;
+           padding:16px; text-align:center; border:1px solid #e9ecef;">
+        <div style="font-size:26px; font-weight:700; color:#333;">{total}</div>
+        <div style="font-size:12px; color:#666; margin-top:2px;">Total Styles</div>
       </div>
-      <div style="flex:1; min-width:140px; background:#f0faf4; border-radius:12px;
-           padding:20px; text-align:center; border:1px solid #c3e6cb;">
-        <div style="font-size:28px; font-weight:700; color:#28a745;">{pass_count}</div>
-        <div style="font-size:13px; color:#666; margin-top:4px;">Passed</div>
+      <div style="flex:1; min-width:120px; background:#f0faf4; border-radius:12px;
+           padding:16px; text-align:center; border:1px solid #c3e6cb;">
+        <div style="font-size:26px; font-weight:700; color:#28a745;">{pass_count}</div>
+        <div style="font-size:12px; color:#666; margin-top:2px;">Passed</div>
       </div>
-      <div style="flex:1; min-width:140px; background:#fff5f5; border-radius:12px;
-           padding:20px; text-align:center; border:1px solid #f5c6cb;">
-        <div style="font-size:28px; font-weight:700; color:#dc3545;">{fail_count}</div>
-        <div style="font-size:13px; color:#666; margin-top:4px;">Failed</div>
+      <div style="flex:1; min-width:120px; background:#fff5f5; border-radius:12px;
+           padding:16px; text-align:center; border:1px solid #f5c6cb;">
+        <div style="font-size:26px; font-weight:700; color:#dc3545;">{fail_count}</div>
+        <div style="font-size:12px; color:#666; margin-top:2px;">Failed</div>
       </div>
-      <div style="flex:1; min-width:140px; background:#f8f9fa; border-radius:12px;
-           padding:20px; text-align:center; border:1px solid #e9ecef;">
-        <div style="font-size:28px; font-weight:700; color:#0066cc;">{pass_pct}%</div>
-        <div style="font-size:13px; color:#666; margin-top:4px;">Pass Rate</div>
+      <div style="flex:1; min-width:120px; background:#f8f9fa; border-radius:12px;
+           padding:16px; text-align:center; border:1px solid #e9ecef;">
+        <div style="font-size:26px; font-weight:700; color:#0066cc;">{pass_pct}%</div>
+        <div style="font-size:12px; color:#666; margin-top:2px;">Pass Rate</div>
       </div>
     </div>
+    """)
 
+    # -- Rule stats table --------------------------------------------------
+    stats_rows_html = ""
+    prev_gid = ""
+    for rid, counts in rule_stats.items():
+        rd = rules_map.get(rid)
+        gid = rd.group if rd else rid.split(".")[0]
+        gname = rd.group_name if rd else gid
+
+        if gid != prev_gid:
+            g_counts = group_stats.get(gid, _Counter())
+            gp = g_counts.get("PASS", 0)
+            gf = g_counts.get("FAIL", 0)
+            gs = g_counts.get("SKIP", 0)
+            gt = gp + gf + gs
+            gp_pct = round(gp / gt * 100) if gt else 0
+            bar_color = "#28a745" if gp_pct > 70 else "#e67e22" if gp_pct > 30 else "#dc3545"
+            stats_rows_html += f"""
+            <tr style="background:#edf2f7;border-top:2px solid #cbd5e0;">
+              <td style="padding:6px 10px;font-weight:700;font-size:12px;color:#1a202c;">{gid}</td>
+              <td style="padding:6px 10px;font-size:12px;font-weight:600;color:#1a202c;">{gname}</td>
+              <td style="padding:6px 10px;text-align:center;font-size:12px;color:#22863a;font-weight:700;">{gp}</td>
+              <td style="padding:6px 10px;text-align:center;font-size:12px;color:#cb2431;font-weight:700;">{gf}</td>
+              <td style="padding:6px 10px;text-align:center;font-size:12px;color:#b08800;font-weight:700;">{gs}</td>
+              <td style="padding:6px 8px;width:90px;">
+                <div style="background:#e2e8f0;border-radius:3px;height:10px;overflow:hidden;">
+                  <div style="background:{bar_color};height:100%;width:{gp_pct}%;border-radius:3px;"></div>
+                </div>
+              </td>
+            </tr>"""
+            prev_gid = gid
+
+        rp = counts.get("PASS", 0)
+        rf = counts.get("FAIL", 0)
+        rs = counts.get("SKIP", 0)
+        rname = rd.name if rd else rid
+        stats_rows_html += f"""
+        <tr style="background:#f7fafc;border-bottom:1px solid #e2e8f0;">
+          <td style="padding:5px 10px 5px 26px;font-size:12px;color:#4a5568;">{rid}</td>
+          <td style="padding:5px 10px;font-size:12px;color:#2d3748;">{rname}</td>
+          <td style="padding:5px 10px;text-align:center;font-size:12px;color:#22863a;font-weight:600;">{rp}</td>
+          <td style="padding:5px 10px;text-align:center;font-size:12px;color:#cb2431;font-weight:600;">{rf}</td>
+          <td style="padding:5px 10px;text-align:center;font-size:12px;color:#b08800;font-weight:600;">{rs}</td>
+          <td style="padding:5px 8px;"></td>
+        </tr>"""
+
+    html_parts.append(f"""
+    <details style="margin-bottom:18px;" open>
+      <summary style="cursor:pointer;font-size:14px;font-weight:700;color:#333;
+               padding:8px 0;user-select:none;">
+        Rule Statistics
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;
+             border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-top:6px;
+             background:#fff;">
+        <thead>
+          <tr style="background:#edf2f7;">
+            <th style="padding:8px 10px;text-align:left;font-size:12px;color:#2d3748;font-weight:700;width:55px;">Rule</th>
+            <th style="padding:8px 10px;text-align:left;font-size:12px;color:#2d3748;font-weight:700;">Name</th>
+            <th style="padding:8px 10px;text-align:center;font-size:12px;color:#22863a;font-weight:700;width:55px;">Pass</th>
+            <th style="padding:8px 10px;text-align:center;font-size:12px;color:#cb2431;font-weight:700;width:55px;">Fail</th>
+            <th style="padding:8px 10px;text-align:center;font-size:12px;color:#b08800;font-weight:700;width:55px;">Skip</th>
+            <th style="padding:8px 8px;font-size:12px;color:#2d3748;font-weight:700;width:90px;">Pass %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stats_rows_html}
+        </tbody>
+      </table>
+    </details>
+    """)
+
+    html_parts.append(f"""
     <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;">
       <span style="font-size:14px;font-weight:600;color:#444;margin-right:4px;">Filter:</span>
       <button onclick="document.querySelectorAll('.style-card').forEach(c=>c.style.display='');
@@ -113,11 +227,11 @@ def run(licensor_display: str, file_obj):
         item_type = vr["Item Type"]
         customer = vr["Customer"]
         overall = vr["overall_status"]
-        results = vr["results"]
+        row_results = vr["results"]
 
-        rules_passed = sum(1 for r in results if r["status"] == "PASS")
-        rules_failed = sum(1 for r in results if r["status"] == "FAIL")
-        rules_skipped = sum(1 for r in results if r["status"] == "SKIP")
+        rules_passed = sum(1 for r in row_results if r["status"] == "PASS")
+        rules_failed = sum(1 for r in row_results if r["status"] == "FAIL")
+        rules_skipped = sum(1 for r in row_results if r["status"] == "SKIP")
 
         is_pass = overall == "PASS"
         card_bg = "#f0faf4" if is_pass else "#fff5f5"
@@ -153,35 +267,43 @@ def run(licensor_display: str, file_obj):
                     letter-spacing:0.5px;">{badge_text}</span>
             </div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="display:flex;flex-direction:column;gap:6px;">
         """
 
-        for r in results:
-            status = r["status"]
-            if status == "PASS":
-                icon, bg, color = "&#10003;", "#d4edda", "#155724"
-            elif status == "FAIL":
-                icon, bg, color = "&#10007;", "#f8d7da", "#721c24"
-            else:
-                icon, bg, color = "&#8674;", "#fff3cd", "#856404"
-
-            reason_html = ""
-            if r["reason"]:
-                reason_html = (
-                    f'<span style="color:{color};font-size:12px;margin-left:10px;'
-                    f'opacity:0.85;">&rarr; {r["reason"]}</span>'
-                )
-
+        grouped = _group_results(row_results, rules_map)
+        for (gid, gname), sub_results in grouped.items():
             card_html += f"""
-            <div style="background:{bg};border-radius:6px;padding:8px 14px;
-                 display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
-              <span style="font-weight:700;color:{color};min-width:55px;font-size:13px;">
-                {icon} {r["rule_id"]}
-              </span>
-              <span style="color:{color};font-size:13px;">{r["rule_name"]}</span>
-              {reason_html}
+            <div style="font-size:12px;font-weight:700;color:#555;margin-top:6px;
+                 text-transform:uppercase;letter-spacing:0.5px;">
+              {gid}: {gname}
             </div>
             """
+            for r in sub_results:
+                status = r["status"]
+                if status == "PASS":
+                    icon, bg, color = "&#10003;", "#d4edda", "#155724"
+                elif status == "FAIL":
+                    icon, bg, color = "&#10007;", "#f8d7da", "#721c24"
+                else:
+                    icon, bg, color = "&#8674;", "#fff3cd", "#856404"
+
+                reason_html = ""
+                if r["reason"]:
+                    reason_html = (
+                        f'<span style="color:{color};font-size:12px;margin-left:10px;'
+                        f'opacity:0.85;">&rarr; {r["reason"]}</span>'
+                    )
+
+                card_html += f"""
+                <div style="background:{bg};border-radius:6px;padding:8px 14px;
+                     display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-left:12px;">
+                  <span style="font-weight:700;color:{color};min-width:55px;font-size:13px;">
+                    {icon} {r["rule_id"]}
+                  </span>
+                  <span style="color:{color};font-size:13px;">{r["rule_name"]}</span>
+                  {reason_html}
+                </div>
+                """
 
         card_html += "</div></div>"
         html_parts.append(card_html)
@@ -216,7 +338,6 @@ def run(licensor_display: str, file_obj):
     report_df = pd.DataFrame(report_rows)
     report_df.to_excel(report_path, index=False, engine="openpyxl")
 
-    # Widen the "Check Details" column and enable text wrap
     from openpyxl import load_workbook
     from openpyxl.styles import Alignment
 
@@ -252,6 +373,7 @@ def build_config_html():
                  border:1px solid #dee2e6; border-radius:8px; overflow:hidden;">
             <thead>
               <tr style="background:#e9ecef; text-align:left;">
+                <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Group</th>
                 <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">ID</th>
                 <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Rule Name</th>
                 <th style="padding:12px 14px; border-bottom:2px solid #ced4da; color:#333; font-weight:700;">Enabled</th>
@@ -261,7 +383,14 @@ def build_config_html():
             </thead>
             <tbody>
         """)
+
+        prev_group = ""
         for r in cfg.rules:
+            group_cell = ""
+            if r.group != prev_group:
+                group_cell = f"<strong>{r.group}</strong>: {r.group_name}"
+                prev_group = r.group
+
             en_badge = ('<span style="color:#28a745; font-weight:600;">Enabled</span>'
                         if r.enabled else
                         '<span style="color:#dc3545; font-weight:600;">Disabled</span>')
@@ -271,6 +400,7 @@ def build_config_html():
             cf = r.config_file or "\u2014"
             parts.append(f"""
               <tr style="border-bottom:1px solid #e9ecef; background:#fff;">
+                <td style="padding:10px 14px; color:#333;">{group_cell}</td>
                 <td style="padding:10px 14px; font-weight:600; color:#333;">{r.id}</td>
                 <td style="padding:10px 14px; color:#333;">{r.name}</td>
                 <td style="padding:10px 14px;">{en_badge}</td>
@@ -307,7 +437,6 @@ with gr.Blocks(
     )
 
     with gr.Tabs():
-        # ── Tab 1: Validate ───────────────────────────────────────────────
         with gr.Tab("Validate"):
             with gr.Row():
                 licensor_dd = gr.Dropdown(
@@ -344,7 +473,6 @@ with gr.Blocks(
                 outputs=[results_html, download_file],
             )
 
-        # ── Tab 2: Config ─────────────────────────────────────────────────
         with gr.Tab("Config"):
             gr.Markdown("### Active Configuration\nRead-only view of rules loaded from `licensor_registry.yml`.")
             gr.HTML(value=build_config_html())
