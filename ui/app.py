@@ -19,6 +19,46 @@ from engine.licensor_context import build_context
 from engine.reporter import build_output
 from engine.validator import run_validation
 
+_COL_BRAND_COLLECTION = "Brand/Collection"
+_COL_LICENSING_STATUS = "Licensing Status"
+_PHRASE_DIRECT_TO_RETAIL = "direct to retail"
+_PHRASE_CONCEPT_READY = "concept ready for license submission"
+
+
+def apply_default_centric_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """
+    Centric export defaults: drop Direct to Retail brands; keep only
+    Concept Ready For License Submission. Preserves DataFrame index for
+    validator/reporter row alignment.
+    """
+    original_rows = len(df)
+    if _COL_BRAND_COLLECTION not in df.columns or _COL_LICENSING_STATUS not in df.columns:
+        return df, {
+            "applied": False,
+            "original_rows": original_rows,
+            "filtered_rows": original_rows,
+            "dropped_dtr": 0,
+            "dropped_status": 0,
+        }
+
+    s_brand = df[_COL_BRAND_COLLECTION].astype(str)
+    s_status = df[_COL_LICENSING_STATUS].astype(str)
+    is_direct_to_retail = s_brand.str.contains(_PHRASE_DIRECT_TO_RETAIL, case=False, na=False)
+    is_concept_ready = s_status.str.contains(_PHRASE_CONCEPT_READY, case=False, na=False)
+    df_filtered = df[~is_direct_to_retail & is_concept_ready]
+
+    dropped_dtr = int(is_direct_to_retail.sum())
+    dropped_status = int((~is_concept_ready).sum())
+
+    return df_filtered, {
+        "applied": True,
+        "original_rows": original_rows,
+        "filtered_rows": len(df_filtered),
+        "dropped_dtr": dropped_dtr,
+        "dropped_status": dropped_status,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
@@ -61,6 +101,14 @@ def run(licensor_display: str, file_obj):
         raise gr.Error("Select a valid licensor.")
 
     df = pd.read_excel(file_obj.name if hasattr(file_obj, "name") else file_obj)
+    df, filter_meta = apply_default_centric_filters(df)
+    if filter_meta["applied"] and filter_meta["filtered_rows"] == 0:
+        raise gr.Error(
+            "No rows left after default Centric filters "
+            "(exclude Brand/Collection containing Direct to Retail; "
+            "Licensing Status must include Concept Ready For License Submission)."
+        )
+
     context = build_context(licensor_id)
     v_results = run_validation(df, context)
     _pass_df, _error_df, summary = build_output(df, v_results)
@@ -92,6 +140,28 @@ def run(licensor_display: str, file_obj):
 
     # -- Build style-centric HTML ------------------------------------------
     html_parts = []
+
+    if filter_meta["applied"]:
+        orig = filter_meta["original_rows"]
+        filt = filter_meta["filtered_rows"]
+        html_parts.append(f"""
+    <div class="centric-filter-banner" role="status" style="background:#ffffff;border:1px solid #94a3b8;border-left:5px solid #0066cc;
+         border-radius:10px;padding:16px 20px;margin-bottom:18px;line-height:1.55;
+         box-shadow:0 2px 6px rgba(15,23,42,0.08);color:#000000;">
+      <div style="font-weight:800;font-size:15px;color:#000000;margin-bottom:10px;letter-spacing:-0.01em;">
+        Default Centric filters applied
+      </div>
+      <ul style="margin:0;padding-left:22px;color:#000000;font-size:14px;">
+        <li style="margin-bottom:6px;">Excluded rows where <strong style="color:#000000;">Brand/Collection</strong> contains
+            <strong style="color:#000000;">Direct to Retail</strong>.</li>
+        <li>Included only rows where <strong style="color:#000000;">Licensing Status</strong> contains
+            <strong style="color:#000000;">Concept Ready For License Submission</strong>.</li>
+      </ul>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:14px;color:#000000;font-weight:600;">
+        Showing <span style="color:#000000;">{filt}</span> of <span style="color:#000000;">{orig}</span> rows from the upload.
+      </div>
+    </div>
+    """)
 
     html_parts.append(f"""
     <div style="display:flex; gap:16px; margin-bottom:18px; flex-wrap:wrap;">
@@ -421,6 +491,11 @@ css = """
     max-height: none !important;
     overflow: visible !important;
     height: auto !important;
+}
+/* Gradio Soft theme tints list body text; force black for the Centric filter callout */
+.centric-filter-banner,
+.centric-filter-banner * {
+    color: #000000 !important;
 }
 """
 
