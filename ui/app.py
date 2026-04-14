@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import os
 import sys
 import tempfile
@@ -23,6 +24,56 @@ _COL_BRAND_COLLECTION = "Brand/Collection"
 _COL_LICENSING_STATUS = "Licensing Status"
 _PHRASE_DIRECT_TO_RETAIL = "direct to retail"
 _PHRASE_CONCEPT_READY = "concept ready for license submission"
+
+# Excel preview in UI (first sheet only; row cap for large files)
+_PREVIEW_ROW_CAP = 300
+
+
+def _uploaded_file_path(file_obj) -> str | None:
+    if file_obj is None:
+        return None
+    if isinstance(file_obj, str):
+        return file_obj if os.path.isfile(file_obj) else None
+    if isinstance(file_obj, dict):
+        path = file_obj.get("path") or file_obj.get("name")
+        path = str(path) if path else None
+        return path if path and os.path.isfile(path) else None
+    path = getattr(file_obj, "name", None)
+    return path if path and os.path.isfile(path) else None
+
+
+def on_upload_file_change(file_obj):
+    """Show preview CTA when a file is present; hide popup when upload cleared."""
+    if _uploaded_file_path(file_obj) is None:
+        return gr.update(visible=False), gr.update(visible=False)
+    return gr.update(visible=True), gr.update(visible=False)
+
+
+def open_upload_preview(file_obj):
+    if file_obj is None:
+        raise gr.Error("Upload a Centric export (.xlsx) first.")
+    path = _uploaded_file_path(file_obj)
+    if not path:
+        raise gr.Error("Could not read the uploaded file path.")
+    try:
+        df = pd.read_excel(path, nrows=_PREVIEW_ROW_CAP)
+    except Exception as e:
+        raise gr.Error(f"Could not preview this spreadsheet: {e}") from e
+    name = os.path.basename(path)
+    safe_name = html.escape(name)
+    # Use HTML (not Markdown backticks): inline <code> from the theme was unreadable.
+    caption_html = (
+        f'<div class="upload-preview-caption" style="margin:0 0 12px 0;font-size:14px;'
+        f'line-height:1.55;color:#0f172a;">'
+        f"<strong>File:</strong> {safe_name} · <strong>{df.shape[1]}</strong> columns · "
+        f"showing the <strong>first {len(df)}</strong> row(s) from the first sheet "
+        f"(preview capped at {_PREVIEW_ROW_CAP} rows).</div>"
+    )
+    return gr.update(visible=True), df, caption_html
+
+
+def close_upload_preview_modal():
+    return gr.update(visible=False)
 
 
 def apply_default_centric_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -497,6 +548,115 @@ css = """
 .centric-filter-banner * {
     color: #000000 !important;
 }
+/*
+ * Preview popup: do NOT set display: flex !important on #upload-preview-modal — it
+ * overrides Gradio's display:none when visible=False, so the overlay would always show.
+ */
+#upload-preview-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10050 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100vh !important;
+    margin: 0 !important;
+    padding: 24px !important;
+    box-sizing: border-box !important;
+    background: rgba(15, 23, 42, 0.6) !important;
+    /* Single scroll inside the card — nested overflow:auto here caused jitter */
+    overflow: hidden !important;
+}
+#upload-preview-modal .upload-preview-card {
+    width: min(1120px, 96vw);
+    max-height: min(86vh, 900px);
+    margin: 4vh auto;
+    overflow-x: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-radius: 12px;
+    padding: 16px 20px 20px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+    border: 1px solid #cbd5e1;
+}
+/* Theme often uses light gray body text inside blocks; force readable contrast */
+#upload-preview-modal .upload-preview-card,
+#upload-preview-modal .upload-preview-card p,
+#upload-preview-modal .upload-preview-card li,
+#upload-preview-modal .upload-preview-card h1,
+#upload-preview-modal .upload-preview-card h2,
+#upload-preview-modal .upload-preview-card h3,
+#upload-preview-modal .upload-preview-card th,
+#upload-preview-modal .upload-preview-card td,
+#upload-preview-modal .upload-preview-card span,
+#upload-preview-modal .upload-preview-card label,
+#upload-preview-modal .upload-preview-card .label-wrap,
+#upload-preview-modal .upload-preview-card .prose,
+#upload-preview-modal .upload-preview-card .prose * {
+    color: #0f172a !important;
+}
+#upload-preview-modal .upload-preview-card button {
+    color: #0f172a !important;
+    background: #e2e8f0 !important;
+    border: 1px solid #94a3b8 !important;
+}
+#upload-preview-modal .upload-preview-card .table-wrap,
+#upload-preview-modal .upload-preview-card table,
+#upload-preview-modal .upload-preview-card [class*="table"] {
+    color: #0f172a !important;
+    background: #ffffff !important;
+}
+#upload-preview-modal .upload-preview-card [role="gridcell"],
+#upload-preview-modal .upload-preview-card [role="columnheader"] {
+    color: #0f172a !important;
+    background-color: #ffffff !important;
+}
+#upload-preview-modal .upload-preview-card .upload-preview-cell-wrap,
+#upload-preview-modal .upload-preview-card .upload-preview-cell-wrap * {
+    color: #0f172a !important;
+}
+/* Dataframe: light theme vars. Do not zebra-stripe with :nth-child — virtualizer
+   reuses <tr> nodes while scrolling, so DOM row index != data row → flicker. */
+#upload-preview-modal #upload-preview-dataframe {
+    --body-text-color: #0f172a !important;
+    --color-text-primary: #0f172a !important;
+    --color-text-secondary: #334155 !important;
+    --background-fill-primary: #ffffff !important;
+    --border-color-primary: #e2e8f0 !important;
+    --table-even-background-fill: #ffffff !important;
+    --table-odd-background-fill: #ffffff !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+}
+#upload-preview-modal #upload-preview-dataframe svelte-virtual-table-viewport,
+#upload-preview-modal #upload-preview-dataframe table,
+#upload-preview-modal #upload-preview-dataframe thead,
+#upload-preview-modal #upload-preview-dataframe tbody,
+#upload-preview-modal #upload-preview-dataframe tfoot,
+#upload-preview-modal #upload-preview-dataframe th,
+#upload-preview-modal #upload-preview-dataframe td {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+}
+#upload-preview-modal #upload-preview-dataframe th,
+#upload-preview-modal #upload-preview-dataframe td {
+    border-color: #e2e8f0 !important;
+}
+#upload-preview-modal #upload-preview-dataframe thead th {
+    background-color: #edf2f7 !important;
+    color: #0f172a !important;
+    font-weight: 600 !important;
+}
+#upload-preview-modal #upload-preview-dataframe input,
+#upload-preview-modal #upload-preview-dataframe textarea {
+    background: #ffffff !important;
+    color: #0f172a !important;
+}
+#upload-preview-modal .upload-preview-caption,
+#upload-preview-modal .upload-preview-caption * {
+    color: #0f172a !important;
+}
 """
 
 with gr.Blocks(
@@ -513,6 +673,21 @@ with gr.Blocks(
 
     with gr.Tabs():
         with gr.Tab("Validate"):
+            with gr.Column(visible=False, elem_id="upload-preview-modal") as upload_preview_modal:
+                with gr.Column(elem_classes=["upload-preview-card"]):
+                    with gr.Row():
+                        gr.Markdown("### Preview: uploaded spreadsheet")
+                        close_preview_btn = gr.Button("Close", variant="secondary", size="sm")
+                    preview_caption_html = gr.HTML(value="")
+                    preview_dataframe = gr.Dataframe(
+                        label="Sheet data (read-only)",
+                        interactive=False,
+                        wrap=True,
+                        height=520,
+                        elem_id="upload-preview-dataframe",
+                        elem_classes=["upload-preview-cell-wrap"],
+                    )
+
             with gr.Row():
                 licensor_dd = gr.Dropdown(
                     choices=_licensor_names,
@@ -524,6 +699,14 @@ with gr.Blocks(
                     label="Upload Centric Export (.xlsx)",
                     file_types=[".xlsx"],
                     scale=2,
+                )
+
+            with gr.Row():
+                preview_upload_btn = gr.Button(
+                    "Preview uploaded data",
+                    visible=False,
+                    variant="secondary",
+                    size="sm",
                 )
 
             with gr.Row():
@@ -540,6 +723,23 @@ with gr.Blocks(
                 value="<div style='text-align:center; padding:40px; color:#999;'>"
                       "Upload a file and click <b>Run Validation</b> to see results.</div>",
                 elem_classes=["full-scroll"],
+            )
+
+            file_upload.change(
+                fn=on_upload_file_change,
+                inputs=[file_upload],
+                outputs=[preview_upload_btn, upload_preview_modal],
+            )
+
+            preview_upload_btn.click(
+                fn=open_upload_preview,
+                inputs=[file_upload],
+                outputs=[upload_preview_modal, preview_dataframe, preview_caption_html],
+            )
+
+            close_preview_btn.click(
+                fn=close_upload_preview_modal,
+                outputs=[upload_preview_modal],
             )
 
             run_btn.click(
