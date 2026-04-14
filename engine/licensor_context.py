@@ -10,10 +10,8 @@ def build_context(licensor_id: str) -> dict:
     Called once per validation run — not once per row.
     Rules never read files; they only access this dict.
 
-    Gate logic: `is_gate` is set at the group level. All sub-rules
-    belonging to a gate group are collected in `gate_rule_ids`.
-    If *any* sub-rule in a gate group fails for a row, all rules in
-    subsequent groups are skipped.
+    `gate_rule_ids` / `gate_groups` reflect `is_gate` in YAML for tooling;
+    the engine evaluates every active rule for each row (no gate SKIP).
     """
     cfg: LicensorConfig = config_loader.get_config(licensor_id)
     active = cfg.active_rules()
