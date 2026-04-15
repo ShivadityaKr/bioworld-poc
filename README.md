@@ -1,3 +1,9 @@
+---
+title: bioworld_poc
+app_file: ui/app.py
+sdk: gradio
+sdk_version: 4.44.1
+---
 # BioWorld Licensing Rule Engine
 
 ## How to Run
