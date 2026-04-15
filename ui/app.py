@@ -441,13 +441,18 @@ def run(licensor_display: str, file_obj):
                 line += f" : {r['reason']}"
             check_lines.append(line)
 
+        overall = vr["overall_status"]
+        submission_msg = (
+            "Ready for submission" if overall == "PASS" else "Not ready for submission"
+        )
         report_rows.append({
             "Style #": vr["Style #"],
             "Property": vr["Property"],
             "Item Type": vr["Item Type"],
             "Customer": vr["Customer"],
             "Licensor": vr["Licensor"],
-            "Status": vr["overall_status"],
+            "Status": overall,
+            "Submission status": submission_msg,
             "Checks Passed": sum(1 for r in vr["results"] if r["status"] == "PASS"),
             "Checks Failed": sum(1 for r in vr["results"] if r["status"] == "FAIL"),
             "Checks Skipped": sum(1 for r in vr["results"] if r["status"] == "SKIP"),

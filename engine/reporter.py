@@ -23,11 +23,16 @@ def build_output(
         failed = [r for r in vr["results"] if r["status"] == "FAIL"]
 
         if vr["overall_status"] == "PASS":
-            pass_rows.append({**base, "validation_status": "PASS"})
+            pass_rows.append({
+                **base,
+                "validation_status": "PASS",
+                "submission_status": "Ready for submission",
+            })
         else:
             error_rows.append({
                 **base,
                 "validation_status": "FAIL",
+                "submission_status": "Not ready for submission",
                 "failed_rules":    ", ".join(r["rule_id"] for r in failed),
                 "failure_reasons": " | ".join(
                     f"{r['rule_id']}: {r['reason']}" for r in failed if r["reason"]
